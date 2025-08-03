@@ -25,7 +25,8 @@ config = {
     'always_search_files': True,
     'reveal-file-command': {
         # FIXME This is only for nautilus.
-        'linux': ['nautilus', '--new-window']
+        # The order is important, otherwise Nautilus unzips ZIP archives.
+        'linux': ['nautilus', '--select', '', '--new-window']
     }
 }
 
@@ -191,11 +192,12 @@ class Plugin(PluginInstance, TriggerQueryHandler):
         return url.replace("file://", "")
 
     def get_reveal_file_action(self, dir_path: str, file_path: str):
+        print(dir_path, file_path)
         if sys.platform.startswith("linux"):
             return Action(
                 id="reveal_in_file_browser",
                 text="Reveal in file browser",
-                callable=lambda: runDetachedProcess([*config['reveal-file-command']['linux'], file_path])
+                callable=lambda: runDetachedProcess([file_path if x == "" else x for x in config['reveal-file-command']['linux']])
             )
         elif sys.platform == "darwin":
             # FIXME doesnt reveal the file

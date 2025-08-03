@@ -263,11 +263,16 @@ class Plugin(PluginInstance, TriggerQueryHandler):
             ])
             """
 
+            filename = doc.filename
+            url_filename = os.path.basename(doc.url)
+            if doc.filename != url_filename:
+                filename = f'{url_filename} • {doc.filename}'
+
             items.append(
                 StandardItem(
                     id=self.id(),
                     iconUrls=[self.doc_to_icon_path(doc)],
-                    text=f"{doc.filename} • {replace_home_with_tilde(dir_path)}",
+                    text=f"{filename} • {replace_home_with_tilde(dir_path)}",
                     subtext=abstract,
                     actions=actions
                 )

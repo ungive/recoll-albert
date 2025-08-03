@@ -5,6 +5,7 @@ from sys import platform
 from collections import Counter
 import os
 import traceback
+import re
 
 import sys
 sys.path.append('/usr/local/lib64/python3.13/site-packages')
@@ -46,7 +47,7 @@ def extract_around_match(query: str, abstract: str, N: int = 80) -> str:
     Returns:
       str: snippet of abstract around best match
     """
-
+    
     query = query.lower()
     abstract_lower = abstract.lower()
 
@@ -126,7 +127,35 @@ def find_system_mime_icon(mime_type: str):
 
     return None
 
+def replace_snippet_span(text):
+    text = text.replace('<span class="rclmatch">', '')
+    text = text.replace('</span>', '')
+    return text
+   
+def replace_snippet_pages(text):
+    pattern = r'\[P\. (\d+)\]'
+    first_found = False
+    
+    def replacer(match):
+        nonlocal first_found
+        num = match.group(1)
+        if not first_found:
+            first_found = True
+            return f'[{num}]'
+        else:
+            return f'/ [{num}]'
+    
+    return re.sub(pattern, replacer, text)
+   
+def remove_snippet_line_numbers(text):
+    # Pattern to match optional whitespace before [L. number]
+    pattern = r'\s*\[L\. \d+\]'
+    return re.sub(pattern, '', text)
 
+def normalize_whitespace(text):
+    # Replace one or more whitespace characters with a single space
+    return re.sub(r'\s+', ' ', text).strip()
+    
 
 class Plugin(PluginInstance, TriggerQueryHandler):
 
@@ -161,7 +190,7 @@ class Plugin(PluginInstance, TriggerQueryHandler):
             if nres > max_results:
                 nres = max_results
             docs = [query.fetchone() for _ in range(nres)]
-            # print([d.abstract for d in docs])
+            docs = [(doc, query.makedocabstract(doc)) for doc in docs]
             return docs
         except Exception:
             if __debug__:
@@ -169,7 +198,7 @@ class Plugin(PluginInstance, TriggerQueryHandler):
             return []
 
     def remove_duplicate_docs(self, docs):
-        urls = [x.url for x in docs]
+        urls = [doc.url for (doc, _) in docs]
         url_count = Counter(urls)
 
         duplicates = [k for k in url_count if url_count[k] > 1]
@@ -177,12 +206,12 @@ class Plugin(PluginInstance, TriggerQueryHandler):
         for dup in duplicates:
             best_doc = None
             best_rating = -1
-            for doc in [x for x in docs if x.url == dup]:
+            for (doc, abstract) in [(doc, abstract) for (doc, abstract) in docs if doc.url == dup]:
                 rating = float(doc.relevancyrating.replace("%", ""))
                 if rating > best_rating:
-                    best_doc = doc
+                    best_doc = (doc, abstract)
                     best_rating = rating
-            docs = [x for x in docs if x.url != dup]
+            docs = [(doc, abstract) for (doc, abstract) in docs if doc.url != dup]
             docs.append(best_doc)
         return docs
 
@@ -192,7 +221,6 @@ class Plugin(PluginInstance, TriggerQueryHandler):
         return url.replace("file://", "")
 
     def get_reveal_file_action(self, dir_path: str, file_path: str):
-        print(dir_path, file_path)
         if sys.platform.startswith("linux"):
             return Action(
                 id="reveal_in_file_browser",
@@ -233,7 +261,7 @@ class Plugin(PluginInstance, TriggerQueryHandler):
         if remove_duplicates:
             docs = self.remove_duplicate_docs(docs)
 
-        for doc in docs:
+        for (doc, abstract) in docs:
             path = self.path_from_url(doc.url)
             if not path:
                 continue
@@ -245,10 +273,19 @@ class Plugin(PluginInstance, TriggerQueryHandler):
             if dir_open:
                 actions.append(dir_open)
             actions.append(Action("open_with_default_application", "Open with default application", lambda u=doc.url: openUrl(u)))
-                
-            abstract = doc.abstract
-            abstract = extract_around_match(query, abstract, 80)
 
+            # snippet = extract_around_match(query, abstract, 80)
+            snippet = abstract
+            snippet = replace_snippet_span(snippet)
+            snippet = replace_snippet_pages(snippet)
+            snippet = remove_snippet_line_numbers(snippet)
+            snippet = normalize_whitespace(snippet)
+            snippet = snippet[:256]
+            
+            abstract = doc.abstract
+            abstract = normalize_whitespace(abstract)
+            abstract = abstract[:256]
+            
             # FIXME
             """
             actions.extend([
@@ -272,8 +309,8 @@ class Plugin(PluginInstance, TriggerQueryHandler):
                 StandardItem(
                     id=self.id(),
                     iconUrls=[self.doc_to_icon_path(doc)],
-                    text=f"{filename} • {replace_home_with_tilde(dir_path)}",
-                    subtext=abstract,
+                    text=f"{filename.strip()} • {replace_home_with_tilde(dir_path).strip()}",
+                    subtext=f"{snippet.strip()}" + (f" {abstract}" if abstract else ""),
                     actions=actions
                 )
             )

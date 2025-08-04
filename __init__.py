@@ -28,7 +28,8 @@ config = {
         # FIXME This is only for nautilus.
         # The order is important, otherwise Nautilus unzips ZIP archives.
         'linux': ['nautilus', '--select', '', '--new-window']
-    }
+    },
+    'max-results': 512
 }
 
 icon_path = str(Path(__file__).parent / "recoll.svg")
@@ -147,9 +148,9 @@ def replace_snippet_pages(text):
     
     return re.sub(pattern, replacer, text)
    
-def remove_snippet_line_numbers(text):
+def remove_snippet_position_indicators(text):
     # Pattern to match optional whitespace before [L. number]
-    pattern = r'\s*\[L\. \d+\]'
+    pattern = r'\s*\[[A-Z]\. \d+\]'
     return re.sub(pattern, '', text)
 
 def normalize_whitespace(text):
@@ -173,7 +174,7 @@ class Plugin(PluginInstance, TriggerQueryHandler):
     def defaultTrigger(self):
         return "" if config['always_search_files'] else "rc "
 
-    def query_rec(self, query_str, max_results=10, max_chars=80, context_words=1):
+    def query_rec(self, query_str, max_chars=80, context_words=4):
         if not recoll:
             return []
 
@@ -187,7 +188,7 @@ class Plugin(PluginInstance, TriggerQueryHandler):
             db.setAbstractParams(maxchars=max_chars, contextwords=context_words)
             query = db.query()
             nres = query.execute(query_str)
-            if nres > max_results:
+            if nres > config['max-results']:
                 nres = max_results
             docs = [query.fetchone() for _ in range(nres)]
             docs = [(doc, query.makedocabstract(doc)) for doc in docs]
@@ -277,8 +278,7 @@ class Plugin(PluginInstance, TriggerQueryHandler):
             # snippet = extract_around_match(query, abstract, 80)
             snippet = abstract
             snippet = replace_snippet_span(snippet)
-            snippet = replace_snippet_pages(snippet)
-            snippet = remove_snippet_line_numbers(snippet)
+            snippet = remove_snippet_position_indicators(snippet)
             snippet = normalize_whitespace(snippet)
             snippet = snippet[:256]
             
